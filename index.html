@@ -101,8 +101,9 @@ var API = "https://www.mp3quran.net/api/v3";
 //   noise:  "white" (hiss), "brown" (deep rumble), "pink" (soft)
 //   low/high: filter cut-offs in Hz (frequencies kept)
 //   wobble: how fast the sound slowly swells (0 = steady)
+// Rain is special: it has its own realistic recipe further down.
 var SOUNDS = [
-  { name: "Rain",   noise: "white", high: 800,  low: 9000, wobble: 0 },
+  { name: "Rain",   noise: "rain" },
   { name: "Ocean",  noise: "brown", high: 40,   low: 700,  wobble: 0.08 },
   { name: "Wind",   noise: "pink",  high: 200,  low: 1500, wobble: 0.15 },
   { name: "Stream", noise: "white", high: 1500, low: 5000, wobble: 0.6 },
@@ -244,93 +245,11 @@ function makeNoise(type) {
   return src;
 }
 
-function startSound(def) {
-  var src = makeNoise(def.noise);
-  var hp = actx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = def.high;
-  var lp = actx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = def.low;
-  var g = actx.createGain(); g.gain.value = 0.8;
-  src.connect(hp); hp.connect(lp); lp.connect(g); g.connect(master);
-  var nodes = [src];
-  if (def.wobble) {
-    var lfo = actx.createOscillator(); lfo.frequency.value = def.wobble;
-    var depth = actx.createGain(); depth.gain.value = 0.35;
-    lfo.connect(depth); depth.connect(g.gain); lfo.start();
-    nodes.push(lfo);
-  }
-  src.start();
-  return nodes;
-}
+/* Realistic rain: soft wash + distant rumble + many tiny random drops */
+function startRain() {
+  var nodes = [];
 
-function toggleSound(name, btn) {
-  ensureCtx();
-  if (actx.state === "suspended") actx.resume();
-  var on = btn.getAttribute("aria-pressed") !== "true";
-  btn.setAttribute("aria-pressed", on ? "true" : "false");
-  var def = SOUNDS.filter(function (s) { return s.name === name; })[0];
-  if (def) {
-    if (on) active[name] = startSound(def);
-    else { active[name].forEach(function (n) { try { n.stop(); } catch (e) {} }); delete active[name]; }
-    return;
-  }
-  var f = FILE_SOUNDS.filter(function (s) { return s.name === name; })[0];
-  if (!f) return;
-  if (on) {
-    var a = new Audio(f.url); a.loop = true; a.volume = Number($("volAmb").value);
-    a.play().catch(function () {}); fileAudio[name] = a;
-  } else { fileAudio[name].pause(); delete fileAudio[name]; }
-}
-
-function startAmbient() { if (actx && actx.state === "suspended") actx.resume(); }
-
-SOUNDS.concat(FILE_SOUNDS).forEach(function (s) {
-  var b = document.createElement("button");
-  b.className = "chip"; b.textContent = s.name; b.setAttribute("aria-pressed", "false");
-  b.onclick = function () { toggleSound(s.name, b); };
-  $("sounds").appendChild(b);
-});
-
-$("volAmb").oninput = function (e) {
-  var v = Number(e.target.value);
-  if (master) master.gain.value = v;
-  Object.keys(fileAudio).forEach(function (k) { fileAudio[k].volume = v; });
-};
-
-/* ---------- Sleep timer ---------- */
-var sleepTimer = null, sleepTick = null;
-$("sleep").onchange = function (e) {
-  clearTimeout(sleepTimer); clearInterval(sleepTick);
-  var mins = Number(e.target.value);
-  if (!mins) { $("sleepInfo").textContent = ""; return; }
-  var end = Date.now() + mins * 60000;
-  sleepTick = setInterval(function () {
-    var left = Math.max(0, Math.round((end - Date.now()) / 60000));
-    $("sleepInfo").textContent = left + " min left";
-  }, 15000);
-  $("sleepInfo").textContent = mins + " min left";
-  sleepTimer = setTimeout(fadeOutAndStop, mins * 60000);
-};
-
-function fadeOutAndStop() {
-  clearInterval(sleepTick);
-  var startRec = audio.volume, startAmb = Number($("volAmb").value), n = 0;
-  var fade = setInterval(function () {
-    n++;
-    var k = 1 - n / 30;
-    audio.volume = Math.max(0, startRec * k);
-    if (master) master.gain.value = Math.max(0, startAmb * k);
-    if (n >= 30) {
-      clearInterval(fade);
-      audio.pause();
-      if (actx) actx.suspend();
-      audio.volume = startRec;
-      if (master) master.gain.value = startAmb;
-      $("sleepInfo").textContent = "Stopped by sleep timer.";
-      $("sleep").value = "0";
-    }
-  }, 200);
-}
-
-load();
-</script>
-</body>
-</html>
+  var wash = makeNoise("pink");
+  var whp = actx.createBiquadFilter(); whp.type = "highpass"; whp.frequency.value = 600;
+  var wlp = actx.createBiquadFilter(); wlp.type = "lowpass"; wlp.frequency.value = 6500;
+  va
