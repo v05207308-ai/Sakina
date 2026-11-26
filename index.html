@@ -102,13 +102,7 @@ var API = "https://www.mp3quran.net/api/v3";
 //   low/high: filter cut-offs in Hz (frequencies kept)
 //   wobble: how fast the sound slowly swells (0 = steady)
 // Rain is special: it has its own realistic recipe further down.
-var SOUNDS = [
-  { name: "Rain",   noise: "rain" },
-  { name: "Ocean",  noise: "brown", high: 40,   low: 700,  wobble: 0.08 },
-  { name: "Wind",   noise: "pink",  high: 200,  low: 1500, wobble: 0.15 },
-  { name: "Stream", noise: "white", high: 1500, low: 5000, wobble: 0.6 },
-  { name: "Deep",   noise: "brown", high: 20,   low: 300,  wobble: 0 }
-];
+var SOUNDS = [];
 
 // Your own sound files (mp3/ogg). Put the file next to this page and
 // add a line like:  { name: "Forest", url: "forest.mp3" }
