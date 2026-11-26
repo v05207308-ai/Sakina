@@ -1,1 +1,336 @@
-https://drive.google.com/file/d/1vB5EKM0A4G9Hzz7Tm_KRztFWmWx88ATL/view?usp=drivesdk
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sakina Player</title>
+<style>
+  :root {
+    --bg: #0e1a1f;
+    --panel: #16262d;
+    --line: #26414a;
+    --text: #e8efee;
+    --muted: #8fa8ad;
+    --accent: #7fd1b9;
+    --accent-ink: #0b1f1a;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, sans-serif; padding-bottom: 140px; }
+  header, main { max-width: 640px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.4rem; margin: 8px 0 0; }
+  h2 { font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 24px 0 8px; }
+  p.sub { color: var(--muted); margin: 4px 0 0; }
+  input, select { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; }
+  .list { margin-top: 8px; max-height: 240px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+  .list button { display: block; width: 100%; text-align: left; padding: 12px; background: none; border: 0; border-bottom: 1px solid var(--line); color: var(--text); font: inherit; cursor: pointer; }
+  .list button:last-child { border-bottom: 0; }
+  .list button[aria-current="true"] { background: var(--accent); color: var(--accent-ink); }
+  .list button:focus-visible, .btn:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { padding: 10px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  label.slider { display: flex; align-items: center; gap: 12px; margin-top: 10px; color: var(--muted); }
+  label.slider span { width: 110px; flex: none; }
+  input[type=range] { padding: 0; accent-color: var(--accent); }
+  .status { color: var(--muted); padding: 12px; }
+  #bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--line); padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); }
+  #bar .inner { max-width: 640px; margin: 0 auto; display: flex; align-items: center; gap: 12px; }
+  #now { flex: 1; min-width: 0; }
+  #now b, #now small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #now small { color: var(--muted); }
+  .btn { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 1rem; cursor: pointer; flex: none; }
+  .btn.play { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sakina Player</h1>
+  <p class="sub">Quran recitation with calm background sounds.</p>
+</header>
+
+<main>
+  <h2>1. Reciter</h2>
+  <input id="search" type="search" placeholder="Search reciters" autocomplete="off">
+  <div class="list" id="reciters"><div class="status">Loading reciters...</div></div>
+
+  <h2>2. Recitation style</h2>
+  <select id="moshaf" disabled><option>Choose a reciter first</option></select>
+
+  <h2>3. Surah</h2>
+  <div class="list" id="surahs"><div class="status">Choose a reciter to see surahs.</div></div>
+
+  <h2>Background sounds</h2>
+  <div class="row" id="sounds"></div>
+  <label class="slider"><span>Recitation</span><input id="volRec" type="range" min="0" max="1" step="0.01" value="1"></label>
+  <label class="slider"><span>Background</span><input id="volAmb" type="range" min="0" max="1" step="0.01" value="0.5"></label>
+
+  <h2>Sleep timer</h2>
+  <select id="sleep">
+    <option value="0">Off</option>
+    <option value="15">15 minutes</option>
+    <option value="30">30 minutes</option>
+    <option value="60">1 hour</option>
+    <option value="120">2 hours</option>
+  </select>
+  <p class="sub" id="sleepInfo"></p>
+</main>
+
+<div id="bar">
+  <div class="inner">
+    <div id="now"><b>Nothing playing</b><small>Pick a reciter and a surah</small></div>
+    <button class="btn" id="prev" aria-label="Previous surah">&#9198;</button>
+    <button class="btn play" id="play" aria-label="Play or pause">&#9654;</button>
+    <button class="btn" id="next" aria-label="Next surah">&#9197;</button>
+  </div>
+</div>
+
+<audio id="audio" preload="none"></audio>
+
+<script>
+/* ============================================================
+   EASY THINGS TO CHANGE
+   ============================================================ */
+
+// Where the reciters come from (free API from mp3quran.net).
+var API = "https://www.mp3quran.net/api/v3";
+
+// Built-in background sounds. They are generated by your browser,
+// so no files are needed. To add another, copy one line and
+// change the name and numbers.
+//   noise:  "white" (hiss), "brown" (deep rumble), "pink" (soft)
+//   low/high: filter cut-offs in Hz (frequencies kept)
+//   wobble: how fast the sound slowly swells (0 = steady)
+var SOUNDS = [
+  { name: "Rain",   noise: "white", high: 800,  low: 9000, wobble: 0 },
+  { name: "Ocean",  noise: "brown", high: 40,   low: 700,  wobble: 0.08 },
+  { name: "Wind",   noise: "pink",  high: 200,  low: 1500, wobble: 0.15 },
+  { name: "Stream", noise: "white", high: 1500, low: 5000, wobble: 0.6 },
+  { name: "Deep",   noise: "brown", high: 20,   low: 300,  wobble: 0 }
+];
+
+// Your own sound files (mp3/ogg). Put the file next to this page and
+// add a line like:  { name: "Forest", url: "forest.mp3" }
+var FILE_SOUNDS = [
+  // { name: "Forest", url: "forest.mp3" }
+];
+
+/* ============================================================
+   APP CODE
+   ============================================================ */
+var $ = function (id) { return document.getElementById(id); };
+var audio = $("audio");
+var reciters = [], surahNames = {};
+var cur = { reciter: null, moshaf: null, surah: null };
+
+function pad3(n) { return String(n).padStart(3, "0"); }
+
+/* ---------- Loading data ---------- */
+function load() {
+  Promise.all([
+    fetch(API + "/reciters?language=eng").then(function (r) { return r.json(); }),
+    fetch(API + "/suwar?language=eng").then(function (r) { return r.json(); })
+  ]).then(function (res) {
+    reciters = res[0].reciters || [];
+    (res[1].suwar || []).forEach(function (s) { surahNames[s.id] = s.name.trim(); });
+    drawReciters("");
+  }).catch(function () {
+    $("reciters").innerHTML = '<div class="status">Could not load reciters. Check your internet connection and reload.</div>';
+  });
+}
+
+function drawReciters(filter) {
+  var box = $("reciters");
+  box.innerHTML = "";
+  var q = filter.trim().toLowerCase();
+  var shown = reciters.filter(function (r) { return !q || r.name.toLowerCase().indexOf(q) !== -1; });
+  if (!shown.length) { box.innerHTML = '<div class="status">No reciters found.</div>'; return; }
+  shown.forEach(function (r) {
+    var b = document.createElement("button");
+    b.textContent = r.name;
+    b.setAttribute("aria-current", cur.reciter && cur.reciter.id === r.id ? "true" : "false");
+    b.onclick = function () { pickReciter(r); };
+    box.appendChild(b);
+  });
+}
+
+function pickReciter(r) {
+  cur.reciter = r;
+  drawReciters($("search").value);
+  var sel = $("moshaf");
+  sel.innerHTML = "";
+  r.moshaf.forEach(function (m, i) {
+    var o = document.createElement("option");
+    o.value = i; o.textContent = m.name;
+    sel.appendChild(o);
+  });
+  sel.disabled = false;
+  pickMoshaf(0);
+}
+
+function pickMoshaf(i) {
+  cur.moshaf = cur.reciter.moshaf[i];
+  var ids = cur.moshaf.surah_list.split(",").map(Number).filter(Boolean);
+  cur.list = ids;
+  var box = $("surahs");
+  box.innerHTML = "";
+  ids.forEach(function (id) {
+    var b = document.createElement("button");
+    b.textContent = id + ". " + (surahNames[id] || "Surah " + id);
+    b.dataset.id = id;
+    b.onclick = function () { playSurah(id); };
+    box.appendChild(b);
+  });
+}
+
+/* ---------- Playing recitation ---------- */
+function playSurah(id) {
+  cur.surah = id;
+  audio.src = cur.moshaf.server.replace(/\/?$/, "/") + pad3(id) + ".mp3";
+  audio.play().catch(function () {});
+  startAmbient();
+  $("now").innerHTML = "";
+  var b = document.createElement("b"); b.textContent = (surahNames[id] || "Surah " + id);
+  var s = document.createElement("small"); s.textContent = cur.reciter.name;
+  $("now").appendChild(b); $("now").appendChild(s);
+  Array.prototype.forEach.call($("surahs").children, function (el) {
+    el.setAttribute("aria-current", el.dataset.id == id ? "true" : "false");
+  });
+}
+
+function step(dir) {
+  if (!cur.list) return;
+  var i = cur.list.indexOf(cur.surah);
+  var n = cur.list[i + dir];
+  if (n) playSurah(n);
+}
+
+audio.addEventListener("ended", function () { step(1); });
+audio.addEventListener("play", function () { $("play").innerHTML = "&#9208;"; });
+audio.addEventListener("pause", function () { $("play").innerHTML = "&#9654;"; });
+$("play").onclick = function () {
+  if (!audio.src) return;
+  if (audio.paused) { audio.play(); startAmbient(); } else { audio.pause(); }
+};
+$("prev").onclick = function () { step(-1); };
+$("next").onclick = function () { step(1); };
+$("search").oninput = function (e) { drawReciters(e.target.value); };
+$("moshaf").onchange = function (e) { pickMoshaf(Number(e.target.value)); };
+$("volRec").oninput = function (e) { audio.volume = Number(e.target.value); };
+
+/* ---------- Background sounds ---------- */
+var actx = null, master = null, active = {}, fileAudio = {};
+
+function ensureCtx() {
+  if (actx) return;
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  master = actx.createGain();
+  master.gain.value = Number($("volAmb").value);
+  master.connect(actx.destination);
+}
+
+function makeNoise(type) {
+  var len = actx.sampleRate * 4;
+  var buf = actx.createBuffer(1, len, actx.sampleRate);
+  var d = buf.getChannelData(0), last = 0, b0 = 0, b1 = 0, b2 = 0;
+  for (var i = 0; i < len; i++) {
+    var w = Math.random() * 2 - 1;
+    if (type === "brown") { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; }
+    else if (type === "pink") { b0 = 0.99 * b0 + w * 0.1; b1 = 0.96 * b1 + w * 0.05; b2 = 0.7 * b2 + w * 0.3; d[i] = (b0 + b1 + b2 + w * 0.1) * 0.5; }
+    else { d[i] = w * 0.6; }
+  }
+  var src = actx.createBufferSource();
+  src.buffer = buf; src.loop = true;
+  return src;
+}
+
+function startSound(def) {
+  var src = makeNoise(def.noise);
+  var hp = actx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = def.high;
+  var lp = actx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = def.low;
+  var g = actx.createGain(); g.gain.value = 0.8;
+  src.connect(hp); hp.connect(lp); lp.connect(g); g.connect(master);
+  var nodes = [src];
+  if (def.wobble) {
+    var lfo = actx.createOscillator(); lfo.frequency.value = def.wobble;
+    var depth = actx.createGain(); depth.gain.value = 0.35;
+    lfo.connect(depth); depth.connect(g.gain); lfo.start();
+    nodes.push(lfo);
+  }
+  src.start();
+  return nodes;
+}
+
+function toggleSound(name, btn) {
+  ensureCtx();
+  if (actx.state === "suspended") actx.resume();
+  var on = btn.getAttribute("aria-pressed") !== "true";
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  var def = SOUNDS.filter(function (s) { return s.name === name; })[0];
+  if (def) {
+    if (on) active[name] = startSound(def);
+    else { active[name].forEach(function (n) { try { n.stop(); } catch (e) {} }); delete active[name]; }
+    return;
+  }
+  var f = FILE_SOUNDS.filter(function (s) { return s.name === name; })[0];
+  if (!f) return;
+  if (on) {
+    var a = new Audio(f.url); a.loop = true; a.volume = Number($("volAmb").value);
+    a.play().catch(function () {}); fileAudio[name] = a;
+  } else { fileAudio[name].pause(); delete fileAudio[name]; }
+}
+
+function startAmbient() { if (actx && actx.state === "suspended") actx.resume(); }
+
+SOUNDS.concat(FILE_SOUNDS).forEach(function (s) {
+  var b = document.createElement("button");
+  b.className = "chip"; b.textContent = s.name; b.setAttribute("aria-pressed", "false");
+  b.onclick = function () { toggleSound(s.name, b); };
+  $("sounds").appendChild(b);
+});
+
+$("volAmb").oninput = function (e) {
+  var v = Number(e.target.value);
+  if (master) master.gain.value = v;
+  Object.keys(fileAudio).forEach(function (k) { fileAudio[k].volume = v; });
+};
+
+/* ---------- Sleep timer ---------- */
+var sleepTimer = null, sleepTick = null;
+$("sleep").onchange = function (e) {
+  clearTimeout(sleepTimer); clearInterval(sleepTick);
+  var mins = Number(e.target.value);
+  if (!mins) { $("sleepInfo").textContent = ""; return; }
+  var end = Date.now() + mins * 60000;
+  sleepTick = setInterval(function () {
+    var left = Math.max(0, Math.round((end - Date.now()) / 60000));
+    $("sleepInfo").textContent = left + " min left";
+  }, 15000);
+  $("sleepInfo").textContent = mins + " min left";
+  sleepTimer = setTimeout(fadeOutAndStop, mins * 60000);
+};
+
+function fadeOutAndStop() {
+  clearInterval(sleepTick);
+  var startRec = audio.volume, startAmb = Number($("volAmb").value), n = 0;
+  var fade = setInterval(function () {
+    n++;
+    var k = 1 - n / 30;
+    audio.volume = Math.max(0, startRec * k);
+    if (master) master.gain.value = Math.max(0, startAmb * k);
+    if (n >= 30) {
+      clearInterval(fade);
+      audio.pause();
+      if (actx) actx.suspend();
+      audio.volume = startRec;
+      if (master) master.gain.value = startAmb;
+      $("sleepInfo").textContent = "Stopped by sleep timer.";
+      $("sleep").value = "0";
+    }
+  }, 200);
+}
+
+load();
+</script>
+</body>
+</html>
